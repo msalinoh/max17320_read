@@ -77,11 +77,9 @@ static inline int max17320_write(MAX17320_HandleTypeDef *dev, uint16_t memory, u
     int fd=i2cOpen(1, addr, 0);
     if (fd < 0) {
         // CETI_ERR("Failed to connect to the MAX17320 battery gauge");
-        ret = -1;
+        return -1;
     }
-    else {
-        ret = i2cWriteWordData(fd, memory, data);
-    }
+    ret = i2cWriteWordData(fd, memory, data);
     i2cClose(fd);
     // TODO: Add error checking but note that there are some exceptions (clearing write)
     return ret;
@@ -97,12 +95,16 @@ int max17320_read(uint16_t memory, uint16_t *storage) {
     int fd=i2cOpen(1, addr, 0);
     if (fd < 0) {
         // CETI_ERR("Failed to connect to the MAX17320 battery gauge");
-        ret = -1;
+        return -1;
     }
-    else {
-        *storage = i2cReadWordData(fd, memory);
-    }
+    int word = i2cReadWordData(fd, memory);
     i2cClose(fd);
+    if (word < 0) {
+        // pigpio reports bus errors as a negative status, which would otherwise
+        // be truncated into a plausible-looking register value
+        return -1;
+    }
+    *storage = (uint16_t)word;
     return ret;
 }
 
@@ -120,7 +122,7 @@ int max17320_clear_write_protection(MAX17320_HandleTypeDef *dev) {
     uint8_t counter = 2;
     while (counter > 0)
     {
-        ret = max17320_write(dev, MAX17320_REG_COMM_STAT, CLEAR_WRITE_PROT);
+        ret |= max17320_write(dev, MAX17320_REG_COMM_STAT, CLEAR_WRITE_PROT);
         usleep(TRECALL_US);
         counter--;
     }
@@ -140,7 +142,7 @@ int max17320_lock_write_protection(MAX17320_HandleTypeDef *dev) {
     int ret = 0;
     while (counter > 0)
     {
-        ret = max17320_write(dev, MAX17320_REG_COMM_STAT, LOCKED_WRITE_PROT);
+        ret |= max17320_write(dev, MAX17320_REG_COMM_STAT, LOCKED_WRITE_PROT);
         usleep(TRECALL_US);
         counter--;
     }
@@ -237,35 +239,38 @@ int max17320_get_voltages(MAX17320_HandleTypeDef *dev) {
 }
 
 int max17320_get_temperature(MAX17320_HandleTypeDef *dev) {
-    int16_t read = 0;
+    uint16_t read = 0;
     int ret = max17320_read(MAX17320_REG_TEMPERATURE, &read);
     if (ret >= 0) {
-        dev->temperature = read * TEMPERATURE_LSB;
+        dev->temperature = (int16_t)read * TEMPERATURE_LSB;
         // CETI_DEBUG("MAX17320 Thermistor Temperature: %.2f °C", dev->temperature);
     }
     ret |= max17320_read(MAX17320_REG_DIETEMP, &read);
     if (ret >= 0) {
-        dev->die_temperature = read * TEMPERATURE_LSB;
+        dev->die_temperature = (int16_t)read * TEMPERATURE_LSB;
         // CETI_DEBUG("MAX17320 Die Temperature: %.2f °C", dev->die_temperature);
     }
     return ret;
 }
 
 int max17320_get_battery_current(MAX17320_HandleTypeDef *dev) {
-    int16_t read = 0;
+    uint16_t read = 0;
     int ret = max17320_read(MAX17320_REG_BATT_CURRENT, &read);
     if (ret >= 0) {
-        dev->battery_current = (read * (CURRENT_LSB/R_SENSE_VAL)) / 1000;
-        // CETI_DEBUG("MAX17320 Battery Current: %.2f mA", dev->battery_current);
+        // CURRENT_LSB is in uV, R_SENSE_VAL in Ω, so the quotient is uA
+        dev->battery_current = ((int16_t)read * (CURRENT_LSB/R_SENSE_VAL)) / 1000000.0;
+        // CETI_DEBUG("MAX17320 Battery Current: %.3f A", dev->battery_current);
     }
     return ret;
 }
 
 int max17320_get_average_battery_current(MAX17320_HandleTypeDef *dev) {
-    int16_t read = 0;
+    uint16_t read = 0;
     int ret = max17320_read(MAX17320_REG_AVG_BATT_CURRENT, &read);
-    dev->average_current = (read * (CURRENT_LSB/R_SENSE_VAL)) / 1000;
-    // CETI_DEBUG("MAX17320 Avg Battery Current: %.2f mA", dev->average_current);
+    if (ret >= 0) {
+        dev->average_current = ((int16_t)read * (CURRENT_LSB/R_SENSE_VAL)) / 1000000.0;
+        // CETI_DEBUG("MAX17320 Avg Battery Current: %.3f A", dev->average_current);
+    }
     return ret;
 }
 
@@ -300,7 +305,7 @@ static inline int max17320_verify_nv_write(MAX17320_HandleTypeDef *dev) {
                        MAX17320_VAL_NBALTH, MAX17320_VAL_NPROTMISCTH, MAX17320_VAL_NPROTCFG, MAX17320_VAL_NJEITAV, MAX17320_VAL_NOVPRTTH, MAX17320_VAL_NDELAYCFG, MAX17320_VAL_NODSCCFG,
                        MAX17320_VAL_NCONFIG, MAX17320_VAL_NTHERMCFG, MAX17320_VAL_NVEMPTY, MAX17320_VAL_NFULLSOCTHR};
     
-    for (int i = 0; i < 18; i++) {
+    for (size_t i = 0; i < sizeof(registers)/sizeof(*registers); i++) {
         ret |= max17320_read(registers[i], &read);
         if (read != data[i]){
             ret |= 1;
@@ -358,8 +363,13 @@ int max17320_gauge_reset(MAX17320_HandleTypeDef *dev) {
     ret |= max17320_write(dev, MAX17320_REG_CONFIG2, MAX17320_RESET_FW);
     ret |= max17320_read(MAX17320_REG_CONFIG2, &read);
     // Wait for POR_CMD bit to clear
+    int attempts = MAX17320_TIMEOUT;
     while ((read & 0x8000) == 0x8000) {
-        // Watch for getting stuck here
+        if (attempts-- <= 0) {
+            // CETI_ERR("MAX17320 POR_CMD never cleared after reset");
+            return -1;
+        }
+        usleep(TRECALL_US);
         ret |= max17320_read(MAX17320_REG_CONFIG2, &read);
         // CETI_DEBUG("MAX17320 waiting for bit to clear post reset");
     }
@@ -410,10 +420,15 @@ int max17320_nonvolatile_write(MAX17320_HandleTypeDef *dev) {
         return ret;
     }
     ret |= max17320_read(MAX17320_REG_COMM_STAT, &read);
+    int attempts = MAX17320_TIMEOUT;
     while((read & 0x0004) == 0x0004) {
+        if (attempts-- <= 0) {
+            // CETI_ERR("MAX17320 block copy never completed");
+            return -1;
+        }
+        usleep(TRECALL_US);
         ret |= max17320_read(MAX17320_REG_COMM_STAT, &read);
         // CETI_DEBUG("MAX17320 waiting for bit to clear post write");
-        // TODO: Determine proper way to exit this loop
     }
 
     if (ret == 0) {
@@ -468,8 +483,20 @@ int max17320_get_remaining_writes(MAX17320_HandleTypeDef *dev) {
     return ret;
 }
 
+// CHARGE_ON/DISCHARGE_ON are AND masks and CHARGE_OFF/DISCHARGE_OFF are OR masks,
+// so CommStat has to be read back and modified. Writing a mask directly would
+// clobber the other FET and re-assert the write-protection bits (0x00F9).
+static inline int max17320_set_comm_stat(MAX17320_HandleTypeDef *dev, uint16_t and_mask, uint16_t or_mask) {
+    uint16_t read = 0;
+    int ret = max17320_read(MAX17320_REG_COMM_STAT, &read);
+    if (ret < 0) {
+        return ret;
+    }
+    return max17320_write(dev, MAX17320_REG_COMM_STAT, (read & and_mask) | or_mask);
+}
+
 int max17320_enable_charging(MAX17320_HandleTypeDef *dev) {
-    int ret = max17320_write(dev, MAX17320_REG_COMM_STAT, CHARGE_ON);
+    int ret = max17320_set_comm_stat(dev, CHARGE_ON, 0x0000);
     if (ret >= 0) {
         // CETI_LOG("MAX17320 Charge FET Enabled");
     }
@@ -480,7 +507,7 @@ int max17320_enable_charging(MAX17320_HandleTypeDef *dev) {
 }
 
 int max17320_enable_discharging(MAX17320_HandleTypeDef *dev) {
-    int ret = max17320_write(dev, MAX17320_REG_COMM_STAT, DISCHARGE_ON);
+    int ret = max17320_set_comm_stat(dev, DISCHARGE_ON, 0x0000);
     if (ret >= 0) {
         // CETI_LOG("MAX17320 Discharge FET Enabled");
     }
@@ -491,7 +518,7 @@ int max17320_enable_discharging(MAX17320_HandleTypeDef *dev) {
 }
 
 int max17320_disable_charging(MAX17320_HandleTypeDef *dev) {
-    int ret = max17320_write(dev, MAX17320_REG_COMM_STAT, CHARGE_OFF);
+    int ret = max17320_set_comm_stat(dev, 0xFFFF, CHARGE_OFF);
     if (ret >= 0) {
         // CETI_LOG("MAX17320 Charge FET Disabled");
     }
@@ -502,7 +529,7 @@ int max17320_disable_charging(MAX17320_HandleTypeDef *dev) {
 }
 
 int max17320_disable_discharging(MAX17320_HandleTypeDef *dev) {
-    int ret = max17320_write(dev, MAX17320_REG_COMM_STAT, DISCHARGE_OFF);
+    int ret = max17320_set_comm_stat(dev, 0xFFFF, DISCHARGE_OFF);
     if (ret >= 0) {
         // CETI_LOG("MAX17320 Discharge FET Disabled");
     }

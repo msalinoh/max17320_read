@@ -2,6 +2,7 @@
 #include "max17320.h"
 #include <stdint.h>
 #include <string.h>
+#include <strings.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -20,11 +21,40 @@ void simple_get(struct registers_desc_e *desc, uint16_t *x){max17320_read(desc->
 void test_get(struct registers_desc_e *desc, uint16_t * x) {*x = desc->address;}
 void test_parse(char * string, size_t size, uint16_t value) {snprintf(string, size, "\"0x%04x\"", value);}
 
+// renders the set flags as a JSON string ("A | B"), or nil if none are set
+static void flags_to_json(char * string, size_t size, char ** flags, int n) {
+    if (n == 0) {
+        snprintf(string, size, "nil");
+        return;
+    }
+    int written = snprintf(string, size, "\"");
+    if (written < 0) {
+        return;
+    }
+    size_t len = (size_t)written;
+    for (int j = 0; j < n; j++) {
+        if (len >= size) {
+            return;
+        }
+        written = snprintf(string + len, size - len, "%s%s", (j == 0) ? "" : " | ", flags[j]);
+        if (written < 0) {
+            return;
+        }
+        len += (size_t)written;
+    }
+    if (len < size) {
+        snprintf(string + len, size - len, "\"");
+    }
+}
+
 float get_rsense_mOhm(void) {
-    uint16_t resense_raw;
-    max17320_read(0x01CF, &resense_raw);
-    float rsense = 0.01*resense_raw;
-    return rsense;
+    uint16_t resense_raw = 0;
+    // nRSense LSB is 10 uOhm
+    if (max17320_read(0x01CF, &resense_raw) < 0 || resense_raw == 0) {
+        // fall back to the board's design value rather than dividing by zero
+        return R_SENSE_VAL*1000.0;
+    }
+    return 0.01*resense_raw;
 }
 
 void nAgeFcCfg_to_str(char * string, size_t size, uint16_t value) {snprintf(string, size, "{\"DeadTargetRatio\": \"\", \"CycleStart\": \"\"}");}
@@ -47,36 +77,25 @@ void Status_to_str(char * string, size_t size, uint16_t raw) {
     if(_RSHIFT(raw, 14, 1)) flags[i++] = "Smx";
     if(_RSHIFT(raw, 15, 1)) flags[i++] = "PA";
 
-    if(i == 0) {
-        strncpy(string, "nil", size);
-        return;
-    }
-    strncpy(string, "\"", size);
-    for(int j = 0; j < i; j++){
-        if (j != 0) {
-            strncat(string, " | ", size);
-        }
-        strncat(string, flags[j], size);
-    }
-    strncat(string, "\"", size);
+    flags_to_json(string, size, flags, i);
 }
  
 void VAlrtTh_to_str(char * string, size_t size, uint16_t raw){
-    float vmax = 0.02*(raw>>8);
-    float vmin = 0.02*(raw& 0xff);
+    float vmax = VOLTAGE_ALT_LSB*(raw>>8);
+    float vmin = VOLTAGE_ALT_LSB*(raw& 0xff);
     snprintf(string, size, "{\"VMAX\": \"%.2f v\", \"VMIN\": \"%.2f v\"}", vmax, vmin);
 }
 
 void TAlrtTh_to_str(char * string, size_t size, uint16_t raw){
     int8_t tmax = (raw >> 8) & 0xFF;
     int8_t tmin = (raw & 0xff);
-    snprintf(string, size, "{\"TMAX\": \"%d C\", \"TMIN\": \"%d C\"}", raw, tmax, tmin);
+    snprintf(string, size, "{\"TMAX\": \"%d C\", \"TMIN\": \"%d C\"}", tmax, tmin);
 }
 
 void SAlrtTh_to_str(char * string, size_t size, uint16_t raw){
     uint8_t smax = (raw >> 8) & 0xFF;
     uint8_t smin = (raw & 0xff);
-    snprintf(string, size, "{\"SMAX\": \"%d\%\", \"SMIN\": \"%d\%\"}", smax, smin);
+    snprintf(string, size, "{\"SMAX\": \"%d%%\", \"SMIN\": \"%d%%\"}", smax, smin);
 }
 
 void AtRate_to_str(char * string, size_t size, uint16_t raw){}
@@ -84,8 +103,8 @@ void RepCap_to_str(char * string, size_t size, uint16_t raw){}
 void RepSOC_to_str(char * string, size_t size, uint16_t raw){}
 void Age_to_str(char * string, size_t size, uint16_t raw){}
 void MaxMinVolt_to_str(char * string, size_t size, uint16_t raw){
-    float vmax = 0.02*(raw>>8);
-    float vmin = 0.02*(raw& 0xff);
+    float vmax = VOLTAGE_ALT_LSB*(raw>>8);
+    float vmin = VOLTAGE_ALT_LSB*(raw& 0xff);
     snprintf(string, size, "{\"MaxVCell\": \"%.2f v\", \"MinVCell\": \"%.2f v\"}", vmax, vmin);
 }
 void MaxMinTemp_to_str(char * string, size_t size, uint16_t raw){
@@ -94,10 +113,11 @@ void MaxMinTemp_to_str(char * string, size_t size, uint16_t raw){
     snprintf(string, size, "{\"TMAX\": \"%d C\", \"TMIN\": \"%d C\"}", tmax, tmin);
 }
 void MaxMinCurr_to_str(char * string, size_t size, uint16_t raw){
-    float rsense_Ohm = get_rsense_mOhm()/1000.0;
-    float imax_V = 0.04*((int8_t) ((raw >> 8) & 0xFF));
-    float imin_V = 0.04*((int8_t) (raw & 0xff));
-    snprintf(string, size, "{\"MaxCurrent\": \"%f A\", \"MinCurrent\": \"%f A\"}", imax_V*rsense_Ohm, imin_V*rsense_Ohm);
+    float rsense_mOhm = get_rsense_mOhm();
+    // LSB is 0.4 mV across the sense resistor; mV / mOhm == A
+    float imax_A = CURRENT_ALT_LSB*((int8_t) ((raw >> 8) & 0xFF))/rsense_mOhm;
+    float imin_A = CURRENT_ALT_LSB*((int8_t) (raw & 0xff))/rsense_mOhm;
+    snprintf(string, size, "{\"MaxCurrent\": \"%f A\", \"MinCurrent\": \"%f A\"}", imax_A, imin_A);
 }
 
 void Config_to_str(char * string, size_t size, uint16_t raw){
@@ -119,34 +139,24 @@ void Config_to_str(char * string, size_t size, uint16_t raw){
     if(_RSHIFT(raw, 2, 1)) flags[i++] = "Aen";
     if(_RSHIFT(raw, 0, 1)) flags[i++] = "PAen";
 
-    if(i == 0) {
-        strncpy(string, "nil", size);
-        return;
-    }
-    strncpy(string, "\"", size);
-    for(int j = 0; j < i; j++){
-        if (j != 0) {
-            strncat(string, " | ", size);
-        }
-        strncat(string, flags[j], size);
-    }
-    strncat(string, "\"", size);
+    flags_to_json(string, size, flags, i);
 }
 
 
 void CapacityReg_to_str(char * string, size_t size, uint16_t raw){
     float rsense_mOhm = get_rsense_mOhm();
-    float voltage_uVh = 0.5*raw;
-    snprintf(string, size, "\"%f mAh\"", voltage_uVh/rsense_mOhm);
+    // LSB is 5.0 uVh across the sense resistor; uVh / mOhm == mAh
+    float charge_uVh = (CAPACITY_LSB*1000.0)*raw;
+    snprintf(string, size, "\"%f mAh\"", charge_uVh/rsense_mOhm);
 }
 
 void PercentageReg_to_str(char * string, size_t size, uint16_t raw){
-    float percent = (float)raw/256.0;
-    snprintf(string, size, "\"%.1f\%\"", percent);
+    float percent = (float)raw*PERCENTAGE_LSB;
+    snprintf(string, size, "\"%.1f%%\"", percent);
 }
 
 void TimeReg_to_str(char * string, size_t size, uint16_t raw){
-    float seconds = (float)raw*5.625;
+    float seconds = (float)raw*TIME_LSB;
     snprintf(string, size, "\"%f m\"", seconds/60);
 }
 // TTE
@@ -157,21 +167,22 @@ void TimeReg_to_str(char * string, size_t size, uint16_t raw){
 // Cycles
 // DesignCap
 void VoltageReg_to_str(char * string, size_t size, uint16_t raw){
-    float voltage_mv = 0.078125*raw;
-    snprintf(string, size, "\"%f V\"", voltage_mv/1000.0);
+    float voltage_V = CELL_VOLTAGE_LSB*raw;
+    snprintf(string, size, "\"%f V\"", voltage_V);
 }
 void TemperatureReg_to_str(char * string, size_t size, uint16_t raw){
-    float temperature_C = ((int16_t)raw)/256.0;
+    float temperature_C = ((int16_t)raw)*TEMPERATURE_LSB;
     snprintf(string, size, "\"%f C\"", temperature_C);
 }
 void CurrentReg_to_str(char * string, size_t size, uint16_t raw){
     float rsense_mOhm = get_rsense_mOhm();
-    float current_uV = 1.5625*(int16_t)raw;
+    // LSB is 1.5625 uV across the sense resistor; uV / mOhm == mA
+    float current_uV = CURRENT_LSB*(int16_t)raw;
     snprintf(string, size, "\"%f mA\"", current_uV/rsense_mOhm);
 }
 
 void ResistanceReg_to_str(char * string, size_t size, uint16_t raw){
-    float r_ohms = ((float)raw)/4096.0;
+    float r_ohms = ((float)raw)*RESISTANCE_LSB;
     snprintf(string, size, "\"%f mOhm\"", r_ohms*1000);
 }
 
@@ -184,37 +195,21 @@ void Config2_to_str(char * string, size_t size, uint16_t raw){
     if(_RSHIFT(raw, 7, 1)) flags[i++] = "dSOCen";
     if(_RSHIFT(raw, 6, 1)) flags[i++] = "TAlrtEn";
 
-    char power_str[512];
     float power_time_s = (float)(45*(1 << _RSHIFT(raw, 8, 4)))/(float)(1 << 6);
+    float drcfg_s = (float)0.8*_RSHIFT(raw, 2, 2);
 
-    char drcfg_str[512];
-    float drcfg_s = (float)0.8*_RSHIFT(raw, 2, 2);   
-    
-    strncpy(string, "{\"flags\": ", size);
-    if(i == 0) {
-        strncat(string, "nil", size);
-        return;
-    }
-    strncat(string, "\"", size);
-    for(int j = 0; j < i; j++){
-        if (j != 0) {
-            strncat(string, " | ", size);
-        }
-        strncat(string, flags[j], size);
-    }
-    strncat(string, "\", ", size);
-    snprintf(power_str, 512, "\"POWR\": \"%.2f s\", ", power_time_s);
-    strncat(string, power_str, size);
-    snprintf(drcfg_str, 512, "\"DRCfg\": \"%.1f to %.1f hr\"}", drcfg_s, drcfg_s + 0.8);
-    strncat(string, drcfg_str, size);
+    char flags_str[256];
+    flags_to_json(flags_str, sizeof(flags_str), flags, i);
 
+    snprintf(string, size, "{\"flags\": %s, \"POWR\": \"%.2f s\", \"DRCfg\": \"%.1f to %.1f hr\"}",
+             flags_str, power_time_s, drcfg_s, drcfg_s + 0.8);
 }
 
 void ProtAlrt_to_str(char * string, size_t size, uint16_t raw) {
     char* flags [16] = {};
     int i = 0;
     if(_RSHIFT(raw, 0, 1)) flags[i++] = "LDet";
-    if(_RSHIFT(raw, 1, 1)) flags[i++] = "ResDefault";
+    if(_RSHIFT(raw, 1, 1)) flags[i++] = "ResDFault";
     if(_RSHIFT(raw, 2, 1)) flags[i++] = "ODCP";
     if(_RSHIFT(raw, 3, 1)) flags[i++] = "UVP";
     if(_RSHIFT(raw, 4, 1)) flags[i++] = "TooHotD";
@@ -230,18 +225,7 @@ void ProtAlrt_to_str(char * string, size_t size, uint16_t raw) {
     if(_RSHIFT(raw, 14, 1)) flags[i++] = "TooHotC";
     if(_RSHIFT(raw, 15, 1)) flags[i++] = "ChgWDT";
 
-    if(i == 0) {
-        strncpy(string, "nil", size);
-        return;
-    }
-    strncpy(string, "\"", size);
-    for(int j = 0; j < i; j++){
-        if (j != 0) {
-            strncat(string, " | ", size);
-        }
-        strncat(string, flags[j], size);
-    }
-    strncat(string, "\"", size);
+    flags_to_json(string, size, flags, i);
 }
 
 void Status2_to_str(char * string, size_t size, uint16_t raw) {
@@ -273,23 +257,12 @@ void ProtStatus_to_str(char * string, size_t size, uint16_t raw){
     if(_RSHIFT(raw, 14, 1)) flags[i++] = "TooHotC";
     if(_RSHIFT(raw, 15, 1)) flags[i++] = "ChgWDT";
 
-    if(i == 0) {
-        strncpy(string, "nil", size);
-        return;
-    }
-    strncpy(string, "\"", size);
-    for(int j = 0; j < i; j++){
-        if (j != 0) {
-            strncat(string, " | ", size);
-        }
-        strncat(string, flags[j], size);
-    }
-    strncat(string, "\"", size);
+    flags_to_json(string, size, flags, i);
 }
 
 void Batt_to_srt(char * string, size_t size, uint16_t raw) {
-    float voltage_mv = 0.3125*raw;
-    snprintf(string, size, "\"%f V\"", voltage_mv/1000.0);
+    float voltage_V = PACK_VOLTAGE_LSB*raw;
+    snprintf(string, size, "\"%f V\"", voltage_V);
 }
 
 void nConfig_to_str(char * string, size_t size, uint16_t raw){
@@ -310,18 +283,7 @@ void nConfig_to_str(char * string, size_t size, uint16_t raw){
     if(_RSHIFT(raw, 1, 1)) flags[i++] = "dSOCen";
     if(_RSHIFT(raw, 0, 1)) flags[i++] = "TAlrtEn";
 
-    if(i == 0) {
-        strncpy(string, "nil", size);
-        return;
-    }
-    strncpy(string, "\"", size);
-    for(int j = 0; j < i; j++){
-        if (j != 0) {
-            strncat(string, " | ", size);
-        }
-        strncat(string, flags[j], size);
-    }
-    strncat(string, "\"", size);
+    flags_to_json(string, size, flags, i);
 }
 
 void nRSense_to_str(char * string, size_t size, uint16_t raw) {
@@ -551,11 +513,35 @@ RegisterDescription desc[] = {
 
 
 void print_description(RegisterDescription *reg){
-    char desc_str[512];
-    uint16_t value;
+    char desc_str[512] = "nil";
+    uint16_t value = 0;
     reg->from_raw(reg, &value);
-    reg->value_2_str(desc_str, 512, value);
+    reg->value_2_str(desc_str, sizeof(desc_str), value);
     printf("\"(%03x) %s\": %s", reg->address, reg->name, desc_str);
+}
+
+// Resolves an argument to an index into desc[], either as a numeric address
+// (decimal, or hex with a 0x prefix) or as a register name. Returns -1 if the
+// argument matches neither.
+static int find_register(const char *arg){
+    char *endptr;
+    long addr = strtol(arg, &endptr, 0);
+    // Only treat the argument as an address when the whole string parses as
+    // one; a partial parse would silently resolve e.g. "1CF" to address 0x001.
+    if(endptr != arg && *endptr == '\0'){
+        for(size_t j = 0; j < sizeof(desc)/sizeof(*desc); j++){
+            if(desc[j].address == addr){
+                return (int)j;
+            }
+        }
+        return -1;
+    }
+    for(size_t j = 0; j < sizeof(desc)/sizeof(*desc); j++){
+        if(strcasecmp(arg, desc[j].name) == 0){
+            return (int)j;
+        }
+    }
+    return -1;
 }
 
 int main(int argc, char* argv[]){
@@ -566,76 +552,31 @@ int main(int argc, char* argv[]){
 
     if(argc == 1) {
         printf("{\n");
-        for(int i = 0; i < sizeof(desc)/sizeof(*desc); i++){
+        for(size_t i = 0; i < sizeof(desc)/sizeof(*desc); i++){
             print_description(&desc[i]);
-            if( i != sizeof(desc)/sizeof(*desc) - 1) 
+            if( i != sizeof(desc)/sizeof(*desc) - 1)
                 printf(",\n");
         }
         printf("\n}\n");
         return 0;
     }
+
     //verify inputs as valid numbers or register names
     for(int i = 1; i < argc; i++){
-        char *endptr;
-        int addr = strtod(argv[i], &endptr);
-        if(addr != 0 || (addr == 0 && endptr != argv[i])){
-            int valid_addr = 0;
-            for(int j = 0; (j < sizeof(desc)/sizeof(*desc)); j++){
-                if(desc[j].address == addr){
-                    valid_addr = 1;
-                    break;
-                }
-                if(desc[j].address > addr){
-                    break;
-                }
-            }
-            if(!valid_addr){
-                printf("Err: register %s is not a valid readable register address\n", argv[i]);
-                return -1;
-            }
-        } else {
-            //try name based search
-            int vaild_name = 0;
-            for(int j = 0; (j < sizeof(desc)/sizeof(*desc)); j++){
-                if(strcasecmp(argv[i], desc[j].name) == 0){
-                    vaild_name = 1;
-                    break;
-                }
-            }
-            if(!vaild_name){
-                printf("Err: register \"%s\" is not a valid readable register name\n", argv[i]);
-                return -1;
-            }
+        if(find_register(argv[i]) < 0){
+            printf("Err: \"%s\" is not a valid readable register address or name\n", argv[i]);
+            return -1;
         }
     }
-
 
     //print list
     printf("{\n");
     for(int i = 1; i < argc; i++){
-        char *endptr;
-        int addr = strtod(argv[i], &endptr);
-        if(addr != 0 || (addr == 0 && endptr != argv[i])){
-            for(int j = 0; (j < sizeof(desc)/sizeof(*desc)); j++){
-                if(desc[j].address == addr){
-                    print_description(&desc[j]);
-                    if( i != argc - 1)
-                        printf(",\n");
-                    break;
-                }
-            }
-        } else {
-            for(int j = 0; (j < sizeof(desc)/sizeof(*desc)); j++){
-                if(strcasecmp(argv[i], desc[j].name) == 0){
-                    print_description(&desc[j]);
-                    if( i != argc - 1)
-                        printf(",\n");
-                    break;
-                }
-            }
-        }
+        print_description(&desc[find_register(argv[i])]);
+        if( i != argc - 1)
+            printf(",\n");
     }
     printf("\n}\n");
-    
+
     return 0;
 }

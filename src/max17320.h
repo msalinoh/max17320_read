@@ -85,16 +85,16 @@
 #define MAX17320_VAL_NFULLSOCTHR		0x5005
 
 // LSB Conversion Macros
-#define R_SENSE_VAL						0.001 // Ω
-#define CAPACITY_LSB					0.005 // mVh, must divide by R_sense to get mAh value
-#define PERCENTAGE_LSB					1/256 // %
+#define R_SENSE_VAL						0.010 // Ω
+#define CAPACITY_LSB					0.005 // mVh, divide by R_sense in Ω for Ah (or by R_sense in mΩ for mAh)
+#define PERCENTAGE_LSB					(1.0/256.0) // %
 #define CELL_VOLTAGE_LSB				0.000078125 // V
-#define PACK_VOLTAGE_LSB				0.0003125; // V
-#define CURRENT_LSB						1.5625 // uV, must divide by R_sense to get mA value
-#define TEMPERATURE_LSB					1/256 // °C
-#define RESISTANCE_LSB					1/4096 // Ω
+#define PACK_VOLTAGE_LSB				0.0003125 // V
+#define CURRENT_LSB						1.5625 // uV, divide by R_sense in Ω for uA (or by R_sense in mΩ for mA)
+#define TEMPERATURE_LSB					(1.0/256.0) // °C
+#define RESISTANCE_LSB					(1.0/4096.0) // Ω
 #define TIME_LSB						5.625 // s
-#define CURRENT_ALT_LSB					0.4 // mV, must divide by R_sense to get mA value
+#define CURRENT_ALT_LSB					0.4 // mV, divide by R_sense in Ω for mA (or by R_sense in mΩ for A)
 #define VOLTAGE_ALT_LSB					0.02 // V
 
 // Other Macros
