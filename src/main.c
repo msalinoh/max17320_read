@@ -6,6 +6,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <signal.h>
+#include <time.h>
 
 #define _RSHIFT(val, s, w) (((val) >> (s)) & ((1 << (w)) - 1)) 
 
@@ -47,7 +49,7 @@ static void flags_to_json(char * string, size_t size, char ** flags, int n) {
     }
 }
 
-float get_rsense_mOhm(void) {
+double get_rsense_mOhm(void) {
     uint16_t resense_raw = 0;
     // nRSense LSB is 10 uOhm
     if (max17320_read(0x01CF, &resense_raw) < 0 || resense_raw == 0) {
@@ -81,8 +83,8 @@ void Status_to_str(char * string, size_t size, uint16_t raw) {
 }
  
 void VAlrtTh_to_str(char * string, size_t size, uint16_t raw){
-    float vmax = VOLTAGE_ALT_LSB*(raw>>8);
-    float vmin = VOLTAGE_ALT_LSB*(raw& 0xff);
+    double vmax = VOLTAGE_ALT_LSB*(raw>>8);
+    double vmin = VOLTAGE_ALT_LSB*(raw& 0xff);
     snprintf(string, size, "{\"VMAX\": \"%.2f v\", \"VMIN\": \"%.2f v\"}", vmax, vmin);
 }
 
@@ -103,8 +105,8 @@ void RepCap_to_str(char * string, size_t size, uint16_t raw){}
 void RepSOC_to_str(char * string, size_t size, uint16_t raw){}
 void Age_to_str(char * string, size_t size, uint16_t raw){}
 void MaxMinVolt_to_str(char * string, size_t size, uint16_t raw){
-    float vmax = VOLTAGE_ALT_LSB*(raw>>8);
-    float vmin = VOLTAGE_ALT_LSB*(raw& 0xff);
+    double vmax = VOLTAGE_ALT_LSB*(raw>>8);
+    double vmin = VOLTAGE_ALT_LSB*(raw& 0xff);
     snprintf(string, size, "{\"MaxVCell\": \"%.2f v\", \"MinVCell\": \"%.2f v\"}", vmax, vmin);
 }
 void MaxMinTemp_to_str(char * string, size_t size, uint16_t raw){
@@ -113,10 +115,10 @@ void MaxMinTemp_to_str(char * string, size_t size, uint16_t raw){
     snprintf(string, size, "{\"TMAX\": \"%d C\", \"TMIN\": \"%d C\"}", tmax, tmin);
 }
 void MaxMinCurr_to_str(char * string, size_t size, uint16_t raw){
-    float rsense_mOhm = get_rsense_mOhm();
+    double rsense_mOhm = get_rsense_mOhm();
     // LSB is 0.4 mV across the sense resistor; mV / mOhm == A
-    float imax_A = CURRENT_ALT_LSB*((int8_t) ((raw >> 8) & 0xFF))/rsense_mOhm;
-    float imin_A = CURRENT_ALT_LSB*((int8_t) (raw & 0xff))/rsense_mOhm;
+    double imax_A = CURRENT_ALT_LSB*((int8_t) ((raw >> 8) & 0xFF))/rsense_mOhm;
+    double imin_A = CURRENT_ALT_LSB*((int8_t) (raw & 0xff))/rsense_mOhm;
     snprintf(string, size, "{\"MaxCurrent\": \"%f A\", \"MinCurrent\": \"%f A\"}", imax_A, imin_A);
 }
 
@@ -144,19 +146,19 @@ void Config_to_str(char * string, size_t size, uint16_t raw){
 
 
 void CapacityReg_to_str(char * string, size_t size, uint16_t raw){
-    float rsense_mOhm = get_rsense_mOhm();
+    double rsense_mOhm = get_rsense_mOhm();
     // LSB is 5.0 uVh across the sense resistor; uVh / mOhm == mAh
-    float charge_uVh = (CAPACITY_LSB*1000.0)*raw;
+    double charge_uVh = (CAPACITY_LSB*1000.0)*raw;
     snprintf(string, size, "\"%f mAh\"", charge_uVh/rsense_mOhm);
 }
 
 void PercentageReg_to_str(char * string, size_t size, uint16_t raw){
-    float percent = (float)raw*PERCENTAGE_LSB;
+    double percent = (double)raw*PERCENTAGE_LSB;
     snprintf(string, size, "\"%.1f%%\"", percent);
 }
 
 void TimeReg_to_str(char * string, size_t size, uint16_t raw){
-    float seconds = (float)raw*TIME_LSB;
+    double seconds = (double)raw*TIME_LSB;
     snprintf(string, size, "\"%f m\"", seconds/60);
 }
 // TTE
@@ -167,29 +169,29 @@ void TimeReg_to_str(char * string, size_t size, uint16_t raw){
 // Cycles
 // DesignCap
 void VoltageReg_to_str(char * string, size_t size, uint16_t raw){
-    float voltage_V = CELL_VOLTAGE_LSB*raw;
+    double voltage_V = CELL_VOLTAGE_LSB*raw;
     snprintf(string, size, "\"%f V\"", voltage_V);
 }
 void TemperatureReg_to_str(char * string, size_t size, uint16_t raw){
-    float temperature_C = ((int16_t)raw)*TEMPERATURE_LSB;
+    double temperature_C = ((int16_t)raw)*TEMPERATURE_LSB;
     snprintf(string, size, "\"%f C\"", temperature_C);
 }
 void CurrentReg_to_str(char * string, size_t size, uint16_t raw){
-    float rsense_mOhm = get_rsense_mOhm();
+    double rsense_mOhm = get_rsense_mOhm();
     // LSB is 1.5625 uV across the sense resistor; uV / mOhm == mA
-    float current_uV = CURRENT_LSB*(int16_t)raw;
+    double current_uV = CURRENT_LSB*(int16_t)raw;
     snprintf(string, size, "\"%f mA\"", current_uV/rsense_mOhm);
 }
 
 void PowerReg_to_str(char * string, size_t size, uint16_t raw){
-    float rsense_mOhm = get_rsense_mOhm();
+    double rsense_mOhm = get_rsense_mOhm();
     // LSB is 8.0 uV^2 across the sense resistor; uV^2 / mOhm == mW
-    float power_uV2 = POWER_LSB*(int16_t)raw;
+    double power_uV2 = POWER_LSB*(int16_t)raw;
     snprintf(string, size, "\"%f mW\"", power_uV2/rsense_mOhm);
 }
 
 void ResistanceReg_to_str(char * string, size_t size, uint16_t raw){
-    float r_ohms = ((float)raw)*RESISTANCE_LSB;
+    double r_ohms = ((double)raw)*RESISTANCE_LSB;
     snprintf(string, size, "\"%f mOhm\"", r_ohms*1000);
 }
 
@@ -202,8 +204,8 @@ void Config2_to_str(char * string, size_t size, uint16_t raw){
     if(_RSHIFT(raw, 7, 1)) flags[i++] = "dSOCen";
     if(_RSHIFT(raw, 6, 1)) flags[i++] = "TAlrtEn";
 
-    float power_time_s = (float)(45*(1 << _RSHIFT(raw, 8, 4)))/(float)(1 << 6);
-    float drcfg_s = (float)0.8*_RSHIFT(raw, 2, 2);
+    double power_time_s = (double)(45*(1 << _RSHIFT(raw, 8, 4)))/(double)(1 << 6);
+    double drcfg_s = (double)0.8*_RSHIFT(raw, 2, 2);
 
     char flags_str[256];
     flags_to_json(flags_str, sizeof(flags_str), flags, i);
@@ -268,7 +270,7 @@ void ProtStatus_to_str(char * string, size_t size, uint16_t raw){
 }
 
 void Batt_to_srt(char * string, size_t size, uint16_t raw) {
-    float voltage_V = PACK_VOLTAGE_LSB*raw;
+    double voltage_V = PACK_VOLTAGE_LSB*raw;
     snprintf(string, size, "\"%f V\"", voltage_V);
 }
 
@@ -294,7 +296,7 @@ void nConfig_to_str(char * string, size_t size, uint16_t raw){
 }
 
 void nRSense_to_str(char * string, size_t size, uint16_t raw) {
-    float resistance_mOhm = 0.01 * raw;
+    double resistance_mOhm = 0.01 * raw;
     snprintf(string, size, "\"%.2f mOhm\"", resistance_mOhm);
 }
 
@@ -551,39 +553,265 @@ static int find_register(const char *arg){
     return -1;
 }
 
+#define DEFAULT_POLL_INTERVAL_NS 1000000000LL // 1 Hz
+#define NS_PER_S                 1000000000LL
+
+// Set from a signal handler so that a polling run can be stopped with ctrl-c
+// without losing the row currently being written.
+static volatile sig_atomic_t stop_requested = 0;
+
+static void handle_stop(int sig){
+    (void)sig;
+    stop_requested = 1;
+}
+
+// The unit a converter appends to its value, or NULL for the composite and
+// flag converters, whose output has no single unit. Units belong to the
+// converter rather than to the register, so one entry covers every register
+// that shares a converter.
+static const char * register_units(const RegisterDescription *reg){
+    if(reg->value_2_str == CurrentReg_to_str)       return "mA";
+    if(reg->value_2_str == PowerReg_to_str)         return "mW";
+    if(reg->value_2_str == CapacityReg_to_str)      return "mAh";
+    if(reg->value_2_str == VoltageReg_to_str)       return "V";
+    if(reg->value_2_str == Batt_to_srt)             return "V";
+    if(reg->value_2_str == TemperatureReg_to_str)   return "C";
+    if(reg->value_2_str == PercentageReg_to_str)    return "%";
+    if(reg->value_2_str == TimeReg_to_str)          return "m";
+    if(reg->value_2_str == ResistanceReg_to_str)    return "mOhm";
+    if(reg->value_2_str == nRSense_to_str)          return "mOhm";
+    return NULL;
+}
+
+// Strips the double quotes the converters wrap scalar values in for json.
+static void unquote(char *value){
+    size_t len = strlen(value);
+    if(len < 2 || value[0] != '"' || value[len - 1] != '"'){
+        return;
+    }
+    memmove(value, value + 1, len - 2);
+    value[len - 2] = '\0';
+}
+
+// Drops the trailing unit from a value, so that it can be named once in the
+// header instead of being repeated on every row.
+static void strip_units(char *value, const char *units){
+    if(units == NULL){
+        return;
+    }
+    size_t vlen = strlen(value);
+    size_t ulen = strlen(units);
+    if(vlen <= ulen || strcmp(value + vlen - ulen, units) != 0){
+        return;
+    }
+    size_t end = vlen - ulen;
+    // percentages are printed without a separating space
+    if(end > 0 && value[end - 1] == ' '){
+        end--;
+    }
+    value[end] = '\0';
+}
+
+// Writes one CSV field, escaped per RFC 4180.
+static void print_csv_field(const char *value){
+    if(strpbrk(value, ",\"\r\n") == NULL){
+        printf("%s", value);
+        return;
+    }
+    putchar('"');
+    for(const char *p = value; *p != '\0'; p++){
+        if(*p == '"'){
+            putchar('"');
+        }
+        putchar(*p);
+    }
+    putchar('"');
+}
+
+static void print_json(const int *selected, int n){
+    printf("{\n");
+    for(int i = 0; i < n; i++){
+        print_description(&desc[selected[i]]);
+        if(i != n - 1)
+            printf(",\n");
+    }
+    printf("\n}\n");
+}
+
+static void print_csv_header(const int *selected, int n){
+    for(int i = 0; i < n; i++){
+        const RegisterDescription *reg = &desc[selected[i]];
+        const char *units = register_units(reg);
+        char label[128];
+
+        if(units != NULL){
+            snprintf(label, sizeof(label), "%s (%s)", reg->name, units);
+        } else {
+            snprintf(label, sizeof(label), "%s", reg->name);
+        }
+        if(i != 0)
+            printf(",");
+        print_csv_field(label);
+    }
+    printf("\n");
+}
+
+static void print_csv_row(const int *selected, int n){
+    for(int i = 0; i < n; i++){
+        RegisterDescription *reg = &desc[selected[i]];
+        char desc_str[512] = "nil";
+        uint16_t value = 0;
+
+        reg->from_raw(reg, &value);
+        reg->value_2_str(desc_str, sizeof(desc_str), value);
+        unquote(desc_str);
+        strip_units(desc_str, register_units(reg));
+        if(i != 0)
+            printf(",");
+        print_csv_field(desc_str);
+    }
+    printf("\n");
+}
+
+static void timespec_advance(struct timespec *ts, long long interval_ns){
+    ts->tv_sec += (time_t)(interval_ns/NS_PER_S);
+    ts->tv_nsec += (long)(interval_ns%NS_PER_S);
+    if(ts->tv_nsec >= NS_PER_S){
+        ts->tv_nsec -= NS_PER_S;
+        ts->tv_sec += 1;
+    }
+}
+
+// Sleeps until deadline. Returns early if a signal arrives, and does not sleep
+// at all when the readings are already taking longer than the poll interval.
+static void sleep_until(const struct timespec *deadline){
+    struct timespec now, remaining;
+    if(clock_gettime(CLOCK_MONOTONIC, &now) != 0){
+        return;
+    }
+    remaining.tv_sec = deadline->tv_sec - now.tv_sec;
+    remaining.tv_nsec = deadline->tv_nsec - now.tv_nsec;
+    if(remaining.tv_nsec < 0){
+        remaining.tv_sec -= 1;
+        remaining.tv_nsec += NS_PER_S;
+    }
+    if(remaining.tv_sec < 0){
+        return;
+    }
+    nanosleep(&remaining, NULL);
+}
+
+// Reads the selected registers once per interval until interrupted.
+static void poll_csv(const int *selected, int n, long long interval_ns){
+    struct timespec deadline;
+
+    // take over the signals pigpio installs handlers for, so that the loop
+    // unwinds through atexit(gpioTerminate) instead of exiting from a handler
+    signal(SIGINT, handle_stop);
+    signal(SIGTERM, handle_stop);
+
+    print_csv_header(selected, n);
+    clock_gettime(CLOCK_MONOTONIC, &deadline);
+    while(!stop_requested){
+        print_csv_row(selected, n);
+        // rows are consumed as they are produced, so do not sit in the buffer
+        fflush(stdout);
+        timespec_advance(&deadline, interval_ns);
+        sleep_until(&deadline);
+    }
+}
+
+// Parses a poll interval in seconds. Returns 0 on success.
+static int parse_interval(const char *arg, long long *interval_ns){
+    char *endptr;
+    double seconds = strtod(arg, &endptr);
+    if(endptr == arg || *endptr != '\0' || !(seconds > 0.0)){
+        return -1;
+    }
+    *interval_ns = (long long)(seconds*(double)NS_PER_S + 0.5);
+    if(*interval_ns <= 0){
+        return -1;
+    }
+    return 0;
+}
+
 int main(int argc, char* argv[]){
+    size_t n_desc = sizeof(desc)/sizeof(*desc);
+    int csv_output = 0;
+    long long interval_ns = DEFAULT_POLL_INTERVAL_NS;
+    int interval_given = 0;
+
+    // room for either every register or every argument, whichever is larger
+    int *selected = malloc((n_desc + (size_t)argc)*sizeof(*selected));
+    if(selected == NULL){
+        printf("Err: out of memory\n");
+        return -1;
+    }
+    int n_selected = 0;
+
+    //verify inputs as valid flags, numbers, or register names
+    for(int i = 1; i < argc; i++){
+        const char *interval_arg = NULL;
+
+        if(strcmp(argv[i], "--csv") == 0){
+            csv_output = 1;
+            continue;
+        }
+        if(strncmp(argv[i], "--interval=", 11) == 0){
+            interval_arg = argv[i] + 11;
+        } else if(strcmp(argv[i], "--interval") == 0){
+            if(i + 1 >= argc){
+                printf("Err: --interval requires a value in seconds\n");
+                free(selected);
+                return -1;
+            }
+            interval_arg = argv[++i];
+        }
+        if(interval_arg != NULL){
+            if(parse_interval(interval_arg, &interval_ns) != 0){
+                printf("Err: \"%s\" is not a valid poll interval in seconds\n", interval_arg);
+                free(selected);
+                return -1;
+            }
+            interval_given = 1;
+            continue;
+        }
+
+        int j = find_register(argv[i]);
+        if(j < 0){
+            printf("Err: \"%s\" is not a valid flag, readable register address, or register name\n", argv[i]);
+            printf("Usage: %s [--csv [--interval SECONDS]] [register ...]\n", argv[0]);
+            free(selected);
+            return -1;
+        }
+        selected[n_selected++] = j;
+    }
+
+    if(interval_given && !csv_output){
+        printf("Err: --interval only applies to --csv output\n");
+        free(selected);
+        return -1;
+    }
+
+    // naming no registers selects all of them
+    if(n_selected == 0){
+        for(size_t j = 0; j < n_desc; j++){
+            selected[n_selected++] = (int)j;
+        }
+    }
+
     if (gpioInitialise() < 0) {
+        free(selected);
         return -1;
     }
     atexit(gpioTerminate);
 
-    if(argc == 1) {
-        printf("{\n");
-        for(size_t i = 0; i < sizeof(desc)/sizeof(*desc); i++){
-            print_description(&desc[i]);
-            if( i != sizeof(desc)/sizeof(*desc) - 1)
-                printf(",\n");
-        }
-        printf("\n}\n");
-        return 0;
+    if(csv_output){
+        poll_csv(selected, n_selected, interval_ns);
+    } else {
+        print_json(selected, n_selected);
     }
 
-    //verify inputs as valid numbers or register names
-    for(int i = 1; i < argc; i++){
-        if(find_register(argv[i]) < 0){
-            printf("Err: \"%s\" is not a valid readable register address or name\n", argv[i]);
-            return -1;
-        }
-    }
-
-    //print list
-    printf("{\n");
-    for(int i = 1; i < argc; i++){
-        print_description(&desc[find_register(argv[i])]);
-        if( i != argc - 1)
-            printf(",\n");
-    }
-    printf("\n}\n");
-
+    free(selected);
     return 0;
 }
