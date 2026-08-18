@@ -96,6 +96,7 @@
 #define TIME_LSB						5.625 // s
 #define CURRENT_ALT_LSB					0.4 // mV, divide by R_sense in Ω for mA (or by R_sense in mΩ for A)
 #define VOLTAGE_ALT_LSB					0.02 // V
+#define POWER_LSB						8.0 // uV^2, divide by R_sense in Ω for uW (or by R_sense in mΩ for mW)
 
 // Other Macros
 #define MAX17320_TIMEOUT                1000

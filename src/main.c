@@ -181,6 +181,13 @@ void CurrentReg_to_str(char * string, size_t size, uint16_t raw){
     snprintf(string, size, "\"%f mA\"", current_uV/rsense_mOhm);
 }
 
+void PowerReg_to_str(char * string, size_t size, uint16_t raw){
+    float rsense_mOhm = get_rsense_mOhm();
+    // LSB is 8.0 uV^2 across the sense resistor; uV^2 / mOhm == mW
+    float power_uV2 = POWER_LSB*(int16_t)raw;
+    snprintf(string, size, "\"%f mW\"", power_uV2/rsense_mOhm);
+}
+
 void ResistanceReg_to_str(char * string, size_t size, uint16_t raw){
     float r_ohms = ((float)raw)*RESISTANCE_LSB;
     snprintf(string, size, "\"%f mOhm\"", r_ohms*1000);
@@ -351,8 +358,8 @@ RegisterDescription desc[] = {
 
     {.name = "RelaxCfg",        .address = 0x00A0, .from_raw = simple_get, .value_2_str = test_parse},
     {.name = "LearnCfg",        .address = 0x00A1, .from_raw = simple_get, .value_2_str = test_parse},
-    {.name = "MaxPeakPower",    .address = 0x00A4, .from_raw = simple_get, .value_2_str = test_parse},
-    {.name = "SusPeakPower",    .address = 0x00A5, .from_raw = simple_get, .value_2_str = test_parse},
+    {.name = "MaxPeakPower",    .address = 0x00A4, .from_raw = simple_get, .value_2_str = PowerReg_to_str},
+    {.name = "SusPeakPower",    .address = 0x00A5, .from_raw = simple_get, .value_2_str = PowerReg_to_str},
     {.name = "PackResistance",  .address = 0x00A6, .from_raw = simple_get, .value_2_str = test_parse},
     {.name = "SysResistance",   .address = 0x00A7, .from_raw = simple_get, .value_2_str = test_parse},
     {.name = "MinSysVoltage",   .address = 0x00A8, .from_raw = simple_get, .value_2_str = test_parse},
@@ -365,9 +372,9 @@ RegisterDescription desc[] = {
     {.name = "ProtAlrt",        .address = 0x00AF, .from_raw = simple_get, .value_2_str = ProtAlrt_to_str},
 
     {.name = "Status2",     .address = 0x00B0, .from_raw = simple_get, .value_2_str = Status2_to_str},
-    {.name = "Power",       .address = 0x00B1, .from_raw = simple_get, .value_2_str = test_parse},
+    {.name = "Power",       .address = 0x00B1, .from_raw = simple_get, .value_2_str = PowerReg_to_str},
     {.name = "VRipple",     .address = 0x00B2, .from_raw = simple_get, .value_2_str = test_parse},
-    {.name = "AvgPower",    .address = 0x00B3, .from_raw = simple_get, .value_2_str = test_parse},
+    {.name = "AvgPower",    .address = 0x00B3, .from_raw = simple_get, .value_2_str = PowerReg_to_str},
     {.name = "TTFCfg",      .address = 0x00B5, .from_raw = simple_get, .value_2_str = test_parse},
     {.name = "CVMixCap",    .address = 0x00B6, .from_raw = simple_get, .value_2_str = test_parse},
     {.name = "CVHalfTime",  .address = 0x00B7, .from_raw = simple_get, .value_2_str = test_parse},
