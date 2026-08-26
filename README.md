@@ -32,3 +32,13 @@ different period in seconds (fractions allowed)
 the flags can appear anywhere in the argument list, and work with a piped
 register list too
 ```cat /path/to/register/list | xargs sudo ./max17320_read --csv```
+
+## Clearing recorded current peaks
+`--clear-max-current` resets the MaxMinCurr register to its power-on value
+before the first reading, so a run reports only the current seen while it was
+running
+```sudo ./max17320_read --clear-max-current --csv Current MaxMinCurr```
+
+this clears the gauge's write protection and leaves it cleared, matching what
+the rest of the driver does — re-locking would write 0x00F9 to CommStat and
+re-enable both FETs

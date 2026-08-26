@@ -356,6 +356,27 @@ static inline int max17320_setup_nv_write(MAX17320_HandleTypeDef *dev) {
     return ret;
 }
 
+// Resets the recorded current peaks so that tracking restarts from the present
+// reading. MaxMinCurr sits in the write-protected range, so protection has to
+// be cleared first; it is left cleared, as elsewhere in this driver, because
+// re-locking writes 0x00F9 to CommStat and would re-enable both FETs.
+int max17320_clear_max_min_current(MAX17320_HandleTypeDef *dev) {
+    int ret = max17320_clear_write_protection(dev);
+    if (ret < 0) {
+        // CETI_ERR("MAX17320 could not clear write protection to reset MaxMinCurr");
+        return ret;
+    }
+    ret = max17320_write(dev, MAX17320_REG_MAXMINCURR, MAXMINCURR_RESET);
+    if (ret < 0) {
+        // CETI_ERR("MAX17320 could not reset MaxMinCurr");
+        return ret;
+    }
+    // no read-back check: the gauge overwrites both peaks with the present
+    // current on its next conversion, so a mismatch here is not an error
+    // CETI_LOG("MAX17320 MaxMinCurr reset");
+    return 0;
+}
+
 int max17320_gauge_reset(MAX17320_HandleTypeDef *dev) {
     uint16_t read = 0;
     int ret = max17320_clear_write_protection(dev);

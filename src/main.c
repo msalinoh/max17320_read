@@ -735,11 +735,14 @@ static int parse_interval(const char *arg, long long *interval_ns){
     return 0;
 }
 
+MAX17320_HandleTypeDef dev;
+
 int main(int argc, char* argv[]){
     size_t n_desc = sizeof(desc)/sizeof(*desc);
     int csv_output = 0;
     long long interval_ns = DEFAULT_POLL_INTERVAL_NS;
     int interval_given = 0;
+    int clear_max_current = 0;
 
     // room for either every register or every argument, whichever is larger
     int *selected = malloc((n_desc + (size_t)argc)*sizeof(*selected));
@@ -755,6 +758,10 @@ int main(int argc, char* argv[]){
 
         if(strcmp(argv[i], "--csv") == 0){
             csv_output = 1;
+            continue;
+        }
+        if(strcmp(argv[i], "--clear-max-current") == 0){
+            clear_max_current = 1;
             continue;
         }
         if(strncmp(argv[i], "--interval=", 11) == 0){
@@ -780,7 +787,7 @@ int main(int argc, char* argv[]){
         int j = find_register(argv[i]);
         if(j < 0){
             printf("Err: \"%s\" is not a valid flag, readable register address, or register name\n", argv[i]);
-            printf("Usage: %s [--csv [--interval SECONDS]] [register ...]\n", argv[0]);
+            printf("Usage: %s [--clear-max-current] [--csv [--interval SECONDS]] [register ...]\n", argv[0]);
             free(selected);
             return -1;
         }
@@ -805,6 +812,14 @@ int main(int argc, char* argv[]){
         return -1;
     }
     atexit(gpioTerminate);
+
+    // reset the recorded peaks before the first reading, so the run reports
+    // only the current seen while it was running
+    if(clear_max_current && max17320_clear_max_min_current(&dev) < 0){
+        printf("Err: could not clear MaxMinCurr\n");
+        free(selected);
+        return -1;
+    }
 
     if(csv_output){
         poll_csv(selected, n_selected, interval_ns);

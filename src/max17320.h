@@ -42,6 +42,7 @@
 #define MAX17320_REG_REMAINING_WRITES	0x1FD
 #define MAX17320_REG_CONFIG2			0x0AB
 #define MAX17320_REG_DIETEMP            0x034
+#define MAX17320_REG_MAXMINCURR			0x00A
 
 // Registers for Non-Volatile Writes
 #define MAX17320_REG_NPACKCFG			0x1B5
@@ -109,6 +110,9 @@
 #define TRECALL_US						5000
 #define MAX17320_RESET 					0x000F
 #define MAX17320_RESET_FW				0x8000
+// power-on value of MaxMinCurr: max seeded to the most negative reading and
+// min to the most positive, so the next conversion replaces both
+#define MAXMINCURR_RESET				0x807F
 #define CHARGE_ON						0xFEFF
 #define CHARGE_OFF						0x0100
 #define DISCHARGE_ON					0xFDFF
@@ -218,6 +222,7 @@ int max17320_get_average_battery_current(MAX17320_HandleTypeDef *dev);
 int max17320_get_time_to_empty(MAX17320_HandleTypeDef *dev);
 int max17320_get_time_to_full(MAX17320_HandleTypeDef *dev);
 int max17320_get_remaining_writes(MAX17320_HandleTypeDef *dev);
+int max17320_clear_max_min_current(MAX17320_HandleTypeDef *dev);
 int max17320_gauge_reset(MAX17320_HandleTypeDef *dev);
 int max17320_reset(MAX17320_HandleTypeDef *dev);
 int max17320_nonvolatile_write(MAX17320_HandleTypeDef *dev);
