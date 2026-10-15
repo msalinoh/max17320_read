@@ -1,5 +1,6 @@
 #include <pigpio.h>
 #include "max17320.h"
+#include "bms_ctl.h"
 #include <stdint.h>
 #include <string.h>
 #include <strings.h>
@@ -743,6 +744,8 @@ int main(int argc, char* argv[]){
     long long interval_ns = DEFAULT_POLL_INTERVAL_NS;
     int interval_given = 0;
     int clear_max_current = 0;
+    int verify_nv = 0;
+    int program_nv = 0;
 
     // room for either every register or every argument, whichever is larger
     int *selected = malloc((n_desc + (size_t)argc)*sizeof(*selected));
@@ -762,6 +765,14 @@ int main(int argc, char* argv[]){
         }
         if(strcmp(argv[i], "--clear-max-current") == 0){
             clear_max_current = 1;
+            continue;
+        }
+        if(strcmp(argv[i], "--verify-nv") == 0){
+            verify_nv = 1;
+            continue;
+        }
+        if(strcmp(argv[i], "--program-nv") == 0){
+            program_nv = 1;
             continue;
         }
         if(strncmp(argv[i], "--interval=", 11) == 0){
@@ -788,6 +799,7 @@ int main(int argc, char* argv[]){
         if(j < 0){
             printf("Err: \"%s\" is not a valid flag, readable register address, or register name\n", argv[i]);
             printf("Usage: %s [--clear-max-current] [--csv [--interval SECONDS]] [register ...]\n", argv[0]);
+            printf("       %s --verify-nv | --program-nv\n", argv[0]);
             free(selected);
             return -1;
         }
@@ -798,6 +810,26 @@ int main(int argc, char* argv[]){
         printf("Err: --interval only applies to --csv output\n");
         free(selected);
         return -1;
+    }
+
+    // the nonvolatile memory modes print their own report, so they do not
+    // combine with register readings
+    if((verify_nv || program_nv) && (verify_nv + program_nv + csv_output + clear_max_current + (n_selected > 0)) > 1){
+        printf("Err: --verify-nv and --program-nv cannot be combined with other flags or registers\n");
+        free(selected);
+        return -1;
+    }
+    if(verify_nv || program_nv){
+        if (gpioInitialise() < 0) {
+            free(selected);
+            return -1;
+        }
+        atexit(gpioTerminate);
+        free(selected);
+        if(program_nv){
+            return bms_ctl_program_nonvolatile_memory() == 0 ? 0 : -1;
+        }
+        return bms_ctl_verify() == 1 ? 0 : -1;
     }
 
     // naming no registers selects all of them

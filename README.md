@@ -42,3 +42,24 @@ running
 this clears the gauge's write protection and leaves it cleared, matching what
 the rest of the driver does — re-locking would write 0x00F9 to CommStat and
 re-enable both FETs
+
+## Nonvolatile memory
+the expected nonvolatile settings are the `g_nv_expected` table in
+`src/bms_ctl.c`, kept in step with `whale-tag-stm32/src/battery/bms_ctl.c`.
+select the board revision and cells with `BMS_VERSION` and `BMS_CELLS`
+
+compare the pack's nonvolatile settings against the table, exiting nonzero on
+any mismatch
+```sudo ./max17320_read --verify-nv```
+
+program the table into nonvolatile memory
+```sudo ./max17320_read --program-nv```
+
+the MAX17320 only allows a limited number of nonvolatile updates, so
+programming
+- is skipped when the pack already holds the expected values
+- is refused when fewer than 3 updates remain
+- writes shadow RAM and reads it back before committing anything
+- takes about 8 s for the block copy, then resets the gauge and verifies the
+  stored values
+- re-enables write protection afterwards, as the STM32 firmware does

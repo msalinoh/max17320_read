@@ -64,26 +64,7 @@
 #define MAX17320_REG_NVEMPTY			0x19E
 #define MAX17320_REG_NFULLSOCTHR		0x1C6
 
-// Data for Non-Volatile Writes
-// Refer to 'NV Write Decisions BMS FW' Spreadsheet for details
-#define MAX17320_VAL_NPACKCFG			0xC204
-#define MAX17320_VAL_NNVCFG0			0x0830
-#define MAX17320_VAL_NNVCFG1			0x2100
-#define MAX17320_VAL_NNVCFG2			0x822D
-#define MAX17320_VAL_NUVPRTTH			0xA002
-#define MAX17320_VAL_NTPRTTH1			0x280A
-#define MAX17320_VAL_NIPRTTH1			0x03FD
-#define MAX17320_VAL_NBALTH				0x0CAA
-#define MAX17320_VAL_NPROTMISCTH		0x0313
-#define MAX17320_VAL_NPROTCFG			0x0C08
-#define MAX17320_VAL_NJEITAV			0xEC00
-#define MAX17320_VAL_NOVPRTTH			0xB3A0
-#define MAX17320_VAL_NDELAYCFG			0x0035
-#define MAX17320_VAL_NODSCCFG			0x4058
-#define MAX17320_VAL_NCONFIG			0x0290
-#define MAX17320_VAL_NTHERMCFG			0x71BE
-#define MAX17320_VAL_NVEMPTY			0x9659
-#define MAX17320_VAL_NFULLSOCTHR		0x5005
+// the values programmed into these registers live in bms_ctl.c
 
 // LSB Conversion Macros
 #define R_SENSE_VAL						0.010 // Ω
@@ -108,6 +89,9 @@
 #define DETERMINE_REMAINING_UPDATES     0xE29B   
 #define INITIATE_BLOCK_COPY             0xE904
 #define TRECALL_US						5000
+#define TBLOCK_US						7360000 // max time for a block copy to nonvolatile memory
+#define COMMSTAT_NVBUSY					0x0002
+#define COMMSTAT_NVERROR				0x0004
 #define MAX17320_RESET 					0x000F
 #define MAX17320_RESET_FW				0x8000
 // power-on value of MaxMinCurr: max seeded to the most negative reading and
@@ -205,9 +189,8 @@ typedef struct __MAX17320_HandleTypeDef {
 } MAX17320_HandleTypeDef;
 
 int max17320_read(uint16_t memory, uint16_t *storage);
+int max17320_write(MAX17320_HandleTypeDef *dev, uint16_t memory, uint16_t data);
 
-
-int max17320_init(MAX17320_HandleTypeDef *dev);
 int max17320_clear_write_protection(MAX17320_HandleTypeDef *dev);
 int max17320_lock_write_protection(MAX17320_HandleTypeDef *dev);
 int max17320_get_status(MAX17320_HandleTypeDef *dev);
@@ -225,8 +208,7 @@ int max17320_get_remaining_writes(MAX17320_HandleTypeDef *dev);
 int max17320_clear_max_min_current(MAX17320_HandleTypeDef *dev);
 int max17320_gauge_reset(MAX17320_HandleTypeDef *dev);
 int max17320_reset(MAX17320_HandleTypeDef *dev);
-int max17320_nonvolatile_write(MAX17320_HandleTypeDef *dev);
-int max17320_verify_nonvolatile(MAX17320_HandleTypeDef *dev);
+int max17320_swap_shadow_ram(MAX17320_HandleTypeDef *dev);
 int max17320_enable_charging(MAX17320_HandleTypeDef *dev);
 int max17320_enable_discharging(MAX17320_HandleTypeDef *dev);
 int max17320_disable_charging(MAX17320_HandleTypeDef *dev);
