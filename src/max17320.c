@@ -415,7 +415,7 @@ int max17320_get_remaining_writes(MAX17320_HandleTypeDef *dev) {
 // CHARGE_ON/DISCHARGE_ON are AND masks and CHARGE_OFF/DISCHARGE_OFF are OR masks,
 // so CommStat has to be read back and modified. Writing a mask directly would
 // clobber the other FET and re-assert the write-protection bits (0x00F9).
-static inline int max17320_set_comm_stat(MAX17320_HandleTypeDef *dev, uint16_t and_mask, uint16_t or_mask) {
+int max17320_set_comm_stat(MAX17320_HandleTypeDef *dev, uint16_t and_mask, uint16_t or_mask) {
     uint16_t read = 0;
     int ret = max17320_read(MAX17320_REG_COMM_STAT, &read);
     if (ret < 0) {

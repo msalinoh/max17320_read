@@ -209,6 +209,7 @@ int max17320_clear_max_min_current(MAX17320_HandleTypeDef *dev);
 int max17320_gauge_reset(MAX17320_HandleTypeDef *dev);
 int max17320_reset(MAX17320_HandleTypeDef *dev);
 int max17320_swap_shadow_ram(MAX17320_HandleTypeDef *dev);
+int max17320_set_comm_stat(MAX17320_HandleTypeDef *dev, uint16_t and_mask, uint16_t or_mask);
 int max17320_enable_charging(MAX17320_HandleTypeDef *dev);
 int max17320_enable_discharging(MAX17320_HandleTypeDef *dev);
 int max17320_disable_charging(MAX17320_HandleTypeDef *dev);

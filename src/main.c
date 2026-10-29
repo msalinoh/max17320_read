@@ -760,6 +760,36 @@ static int shutdown_fets(void){
     return 0;
 }
 
+// Applies the FET override masks in a single CommStat write, leaving any FET
+// not named as it is, then reports the override bits read back. Write
+// protection is not cleared: doing so writes CommStat and would briefly close
+// both FETs. Clearing an override lets the protector decide the FET's state,
+// so an enabled FET can still be held open by a protection fault.
+static int set_fets(uint16_t and_mask, uint16_t or_mask){
+    printf("Setting FETs...\n");
+    // disabling discharge may be the last output before the host loses power
+    fflush(stdout);
+    if(max17320_set_comm_stat(&dev, and_mask, or_mask) < 0){
+        printf("Err: could not write CommStat\n");
+        return -1;
+    }
+
+    uint16_t comm_stat = 0;
+    if(max17320_read(MAX17320_REG_COMM_STAT, &comm_stat) < 0){
+        printf("Err: could not read back CommStat to confirm the FET settings\n");
+        return -1;
+    }
+    printf("Charge FET: %s, Discharge FET: %s, CommStat: 0x%04x\n",
+           (comm_stat & CHARGE_OFF) ? "disabled" : "enabled",
+           (comm_stat & DISCHARGE_OFF) ? "disabled" : "enabled",
+           comm_stat);
+    if((comm_stat & or_mask) != or_mask || (comm_stat & ~and_mask & (CHARGE_OFF | DISCHARGE_OFF)) != 0){
+        printf("Err: CommStat did not take the requested FET settings\n");
+        return -1;
+    }
+    return 0;
+}
+
 MAX17320_HandleTypeDef dev;
 
 int main(int argc, char* argv[]){
@@ -771,6 +801,10 @@ int main(int argc, char* argv[]){
     int verify_nv = 0;
     int program_nv = 0;
     int shutdown = 0;
+    int enable_charge = 0;
+    int disable_charge = 0;
+    int enable_discharge = 0;
+    int disable_discharge = 0;
 
     // room for either every register or every argument, whichever is larger
     int *selected = malloc((n_desc + (size_t)argc)*sizeof(*selected));
@@ -804,6 +838,22 @@ int main(int argc, char* argv[]){
             shutdown = 1;
             continue;
         }
+        if(strcmp(argv[i], "--enable-charge") == 0){
+            enable_charge = 1;
+            continue;
+        }
+        if(strcmp(argv[i], "--disable-charge") == 0){
+            disable_charge = 1;
+            continue;
+        }
+        if(strcmp(argv[i], "--enable-discharge") == 0){
+            enable_discharge = 1;
+            continue;
+        }
+        if(strcmp(argv[i], "--disable-discharge") == 0){
+            disable_discharge = 1;
+            continue;
+        }
         if(strncmp(argv[i], "--interval=", 11) == 0){
             interval_arg = argv[i] + 11;
         } else if(strcmp(argv[i], "--interval") == 0){
@@ -829,6 +879,7 @@ int main(int argc, char* argv[]){
             printf("Err: \"%s\" is not a valid flag, readable register address, or register name\n", argv[i]);
             printf("Usage: %s [--clear-max-current] [--csv [--interval SECONDS]] [register ...]\n", argv[0]);
             printf("       %s --verify-nv | --program-nv | --shutdown\n", argv[0]);
+            printf("       %s [--enable-charge | --disable-charge] [--enable-discharge | --disable-discharge]\n", argv[0]);
             free(selected);
             return -1;
         }
@@ -841,14 +892,21 @@ int main(int argc, char* argv[]){
         return -1;
     }
 
-    // the nonvolatile memory and shutdown modes print their own report, so
-    // they do not combine with register readings
-    if((verify_nv || program_nv || shutdown) && (verify_nv + program_nv + shutdown + csv_output + clear_max_current + (n_selected > 0)) > 1){
-        printf("Err: --verify-nv, --program-nv and --shutdown cannot be combined with other flags or registers\n");
+    if((enable_charge && disable_charge) || (enable_discharge && disable_discharge)){
+        printf("Err: a FET cannot be both enabled and disabled\n");
         free(selected);
         return -1;
     }
-    if(verify_nv || program_nv || shutdown){
+    int set_fet = enable_charge || disable_charge || enable_discharge || disable_discharge;
+
+    // the nonvolatile memory, shutdown and FET modes print their own report,
+    // so they do not combine with register readings
+    if((verify_nv || program_nv || shutdown || set_fet) && (verify_nv + program_nv + shutdown + set_fet + csv_output + clear_max_current + (n_selected > 0)) > 1){
+        printf("Err: --verify-nv, --program-nv, --shutdown and the FET flags cannot be combined with other flags or registers\n");
+        free(selected);
+        return -1;
+    }
+    if(verify_nv || program_nv || shutdown || set_fet){
         if (gpioInitialise() < 0) {
             free(selected);
             return -1;
@@ -857,6 +915,15 @@ int main(int argc, char* argv[]){
         free(selected);
         if(shutdown){
             return shutdown_fets();
+        }
+        if(set_fet){
+            uint16_t and_mask = 0xFFFF;
+            uint16_t or_mask = 0x0000;
+            if(enable_charge)     and_mask &= CHARGE_ON;
+            if(disable_charge)    or_mask |= CHARGE_OFF;
+            if(enable_discharge)  and_mask &= DISCHARGE_ON;
+            if(disable_discharge) or_mask |= DISCHARGE_OFF;
+            return set_fets(and_mask, or_mask);
         }
         if(program_nv){
             return bms_ctl_program_nonvolatile_memory() == 0 ? 0 : -1;

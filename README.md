@@ -73,7 +73,21 @@ pack loses power right after the write and never prints the confirmation. on a
 host powered separately, CommStat is read back to confirm both FETs are open.
 
 this only takes effect when comm override is enabled in `nProtCfg` (CmOvrdEn).
+with nothing attached, the open pack side floats and a meter can still read a
+few volts on it; it drops to 0 V under load
+
 write protection is cleared and left cleared. note that clearing or re-locking
 write protection rewrites CommStat and closes both FETs again, so any later
 command that does so (e.g. `--clear-max-current`, `--program-nv`) reconnects
 the pack
+
+## Charge and discharge FETs
+enable or disable each FET on its own. a FET that is not named is left as it
+is, and the flags combine into a single CommStat write
+```sudo ./max17320_read --disable-charge```
+```sudo ./max17320_read --enable-charge --disable-discharge```
+
+CommStat is read back and the state of both FETs printed. these flags set or
+clear the comm override only: an enabled FET is still opened by the
+protector on a fault, so check `ProtStatus` if one stays off. write
+protection is not touched, since clearing it would briefly close both FETs
