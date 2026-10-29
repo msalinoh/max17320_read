@@ -63,3 +63,17 @@ programming
 - takes about 8 s for the block copy, then resets the gauge and verifies the
   stored values
 - re-enables write protection afterwards, as the STM32 firmware does
+
+## Shutdown
+open both the charge and discharge FETs, cutting current through the pack
+```sudo ./max17320_read --shutdown```
+
+both FETs are opened in a single CommStat write, so a host powered through the
+pack loses power right after the write and never prints the confirmation. on a
+host powered separately, CommStat is read back to confirm both FETs are open.
+
+this only takes effect when comm override is enabled in `nProtCfg` (CmOvrdEn).
+write protection is cleared and left cleared. note that clearing or re-locking
+write protection rewrites CommStat and closes both FETs again, so any later
+command that does so (e.g. `--clear-max-current`, `--program-nv`) reconnects
+the pack

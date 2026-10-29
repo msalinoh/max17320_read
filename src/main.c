@@ -736,6 +736,30 @@ static int parse_interval(const char *arg, long long *interval_ns){
     return 0;
 }
 
+// Opens both FETs and reports whether CommStat shows them open. The report
+// only appears when the host is not powered through the pack.
+static int shutdown_fets(void){
+    printf("Opening charge and discharge FETs...\n");
+    // this may be the last output before the host loses power
+    fflush(stdout);
+    if(max17320_shutdown(&dev) < 0){
+        printf("Err: could not open the FETs\n");
+        return -1;
+    }
+
+    uint16_t comm_stat = 0;
+    if(max17320_read(MAX17320_REG_COMM_STAT, &comm_stat) < 0){
+        printf("Err: could not read back CommStat to confirm the FETs are open\n");
+        return -1;
+    }
+    if((comm_stat & (CHARGE_OFF | DISCHARGE_OFF)) != (CHARGE_OFF | DISCHARGE_OFF)){
+        printf("Err: FETs did not open, CommStat: 0x%04x\n", comm_stat);
+        return -1;
+    }
+    printf("FETs open, CommStat: 0x%04x\n", comm_stat);
+    return 0;
+}
+
 MAX17320_HandleTypeDef dev;
 
 int main(int argc, char* argv[]){
@@ -746,6 +770,7 @@ int main(int argc, char* argv[]){
     int clear_max_current = 0;
     int verify_nv = 0;
     int program_nv = 0;
+    int shutdown = 0;
 
     // room for either every register or every argument, whichever is larger
     int *selected = malloc((n_desc + (size_t)argc)*sizeof(*selected));
@@ -775,6 +800,10 @@ int main(int argc, char* argv[]){
             program_nv = 1;
             continue;
         }
+        if(strcmp(argv[i], "--shutdown") == 0){
+            shutdown = 1;
+            continue;
+        }
         if(strncmp(argv[i], "--interval=", 11) == 0){
             interval_arg = argv[i] + 11;
         } else if(strcmp(argv[i], "--interval") == 0){
@@ -799,7 +828,7 @@ int main(int argc, char* argv[]){
         if(j < 0){
             printf("Err: \"%s\" is not a valid flag, readable register address, or register name\n", argv[i]);
             printf("Usage: %s [--clear-max-current] [--csv [--interval SECONDS]] [register ...]\n", argv[0]);
-            printf("       %s --verify-nv | --program-nv\n", argv[0]);
+            printf("       %s --verify-nv | --program-nv | --shutdown\n", argv[0]);
             free(selected);
             return -1;
         }
@@ -812,20 +841,23 @@ int main(int argc, char* argv[]){
         return -1;
     }
 
-    // the nonvolatile memory modes print their own report, so they do not
-    // combine with register readings
-    if((verify_nv || program_nv) && (verify_nv + program_nv + csv_output + clear_max_current + (n_selected > 0)) > 1){
-        printf("Err: --verify-nv and --program-nv cannot be combined with other flags or registers\n");
+    // the nonvolatile memory and shutdown modes print their own report, so
+    // they do not combine with register readings
+    if((verify_nv || program_nv || shutdown) && (verify_nv + program_nv + shutdown + csv_output + clear_max_current + (n_selected > 0)) > 1){
+        printf("Err: --verify-nv, --program-nv and --shutdown cannot be combined with other flags or registers\n");
         free(selected);
         return -1;
     }
-    if(verify_nv || program_nv){
+    if(verify_nv || program_nv || shutdown){
         if (gpioInitialise() < 0) {
             free(selected);
             return -1;
         }
         atexit(gpioTerminate);
         free(selected);
+        if(shutdown){
+            return shutdown_fets();
+        }
         if(program_nv){
             return bms_ctl_program_nonvolatile_memory() == 0 ? 0 : -1;
         }
