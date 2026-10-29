@@ -90,4 +90,5 @@ is, and the flags combine into a single CommStat write
 CommStat is read back and the state of both FETs printed. these flags set or
 clear the comm override only: an enabled FET is still opened by the
 protector on a fault, so check `ProtStatus` if one stays off. write
-protection is not touched, since clearing it would briefly close both FETs
+protection is cleared in the same writes that set the FETs, so neither FET
+briefly closes along the way, and is left cleared as with `--shutdown`

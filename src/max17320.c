@@ -415,7 +415,7 @@ int max17320_get_remaining_writes(MAX17320_HandleTypeDef *dev) {
 // CHARGE_ON/DISCHARGE_ON are AND masks and CHARGE_OFF/DISCHARGE_OFF are OR masks,
 // so CommStat has to be read back and modified. Writing a mask directly would
 // clobber the other FET and re-assert the write-protection bits (0x00F9).
-int max17320_set_comm_stat(MAX17320_HandleTypeDef *dev, uint16_t and_mask, uint16_t or_mask) {
+static inline int max17320_set_comm_stat(MAX17320_HandleTypeDef *dev, uint16_t and_mask, uint16_t or_mask) {
     uint16_t read = 0;
     int ret = max17320_read(MAX17320_REG_COMM_STAT, &read);
     if (ret < 0) {
@@ -468,18 +468,36 @@ int max17320_disable_discharging(MAX17320_HandleTypeDef *dev) {
     return ret;
 }
 
-// Opens both FETs, cutting current through the pack in both directions. Both
-// bits are set in a single CommStat write: if the host runs off the pack,
-// opening the discharge FET first would cut its power before the charge FET
-// could be opened. Write protection is cleared first and left cleared, since
-// clearing it after would rewrite CommStat and close both FETs again.
-int max17320_shutdown(MAX17320_HandleTypeDef *dev) {
-    int ret = max17320_clear_write_protection(dev);
+// Clears write protection and applies the FET override masks together, leaving
+// any FET not named in the masks as it is. The write-protect bits only change
+// on two consecutive writes, so the target value is written twice with every
+// bit but CHGOff/DISOff cleared. max17320_clear_write_protection writes 0x0000
+// instead, which would briefly close both FETs on the way.
+int max17320_set_fets(MAX17320_HandleTypeDef *dev, uint16_t and_mask, uint16_t or_mask) {
+    uint16_t read = 0;
+    int ret = max17320_read(MAX17320_REG_COMM_STAT, &read);
     if (ret < 0) {
-        // CETI_ERR("MAX17320 could not clear write protection to open the FETs");
         return ret;
     }
-    ret = max17320_set_comm_stat(dev, 0xFFFF, CHARGE_OFF | DISCHARGE_OFF);
+    uint16_t value = ((read & and_mask) | or_mask) & (CHARGE_OFF | DISCHARGE_OFF);
+    for (int i = 0; i < 2; i++) {
+        ret = max17320_write(dev, MAX17320_REG_COMM_STAT, value);
+        if (ret < 0) {
+            // CETI_ERR("MAX17320 could not write CommStat");
+            return ret;
+        }
+        usleep(TRECALL_US);
+    }
+    return 0;
+}
+
+// Opens both FETs, cutting current through the pack in both directions. Both
+// bits are set in the same CommStat writes: if the host runs off the pack,
+// opening the discharge FET first would cut its power before the charge FET
+// could be opened. Write protection is left cleared, since re-locking it would
+// rewrite CommStat and close both FETs again.
+int max17320_shutdown(MAX17320_HandleTypeDef *dev) {
+    int ret = max17320_set_fets(dev, 0xFFFF, CHARGE_OFF | DISCHARGE_OFF);
     if (ret >= 0) {
         // CETI_LOG("MAX17320 Charge and Discharge FETs Disabled");
     }

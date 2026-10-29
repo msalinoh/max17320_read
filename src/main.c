@@ -760,16 +760,15 @@ static int shutdown_fets(void){
     return 0;
 }
 
-// Applies the FET override masks in a single CommStat write, leaving any FET
-// not named as it is, then reports the override bits read back. Write
-// protection is not cleared: doing so writes CommStat and would briefly close
-// both FETs. Clearing an override lets the protector decide the FET's state,
-// so an enabled FET can still be held open by a protection fault.
+// Applies the FET override masks, leaving any FET not named as it is, then
+// reports the override bits read back. Clearing an override lets the
+// protector decide the FET's state, so an enabled FET can still be held open
+// by a protection fault.
 static int set_fets(uint16_t and_mask, uint16_t or_mask){
     printf("Setting FETs...\n");
     // disabling discharge may be the last output before the host loses power
     fflush(stdout);
-    if(max17320_set_comm_stat(&dev, and_mask, or_mask) < 0){
+    if(max17320_set_fets(&dev, and_mask, or_mask) < 0){
         printf("Err: could not write CommStat\n");
         return -1;
     }
